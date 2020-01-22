@@ -43,4 +43,4 @@ RUN apk add --update \
     && apk del build-base \
     meson git autoconf automake make clang libtool pkgconfig ninja json-c-dev msgpack-c-dev gtest-dev libpcap-dev
 
-CMD ["/bin/sh"]
+ENTRYPOINT ["ndff"]
