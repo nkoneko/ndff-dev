@@ -1,7 +1,7 @@
 FROM alpine:3.11.2
 
 RUN mkdir -p /opt/ndff
-ADD . /opt/ndff
+ADD build.sh /opt/ndff
 
 RUN apk add --update \
     build-base \
@@ -32,10 +32,7 @@ RUN apk add --update \
     && make \
     && make install \
     && cd .. \
-    && rm -rf nDPI \
-    && cd /opt/ndff \
-    && rm -rf build \
-    && CC=clang CXX=clang++ meson build
+    && rm -rf nDPI
 
 WORKDIR /opt/ndff
-CMD ["/bin/sh"]
+CMD ["./build.sh"]

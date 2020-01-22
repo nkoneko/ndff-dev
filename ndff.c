@@ -5,6 +5,7 @@ extern "C" {
 #include <arpa/inet.h>
 #include <ndpi/ndpi_api.h>
 #include <syslog.h>
+#include <ndpi/ndpi_typedefs.h>
 #include "ndff.h"
 #include "ndff_util.h"
 
@@ -175,7 +176,7 @@ u_int16_t ndff_set_iphdr(const struct pcap_pkthdr *header, const u_int16_t type,
             ndff_log(LOG_WARNING, "[WARN] packet capture size is smaller than packet size.");
         }
     }
-    if (_ipv4->version == 4)
+    if (_ipv4->version == IPVERSION)
     {
         iphdr_len = ((u_int16_t) _ipv4->ihl) * 4;
         *proto = _ipv4->protocol;
@@ -213,6 +214,57 @@ u_int16_t ndff_set_iphdr(const struct pcap_pkthdr *header, const u_int16_t type,
         *ipv6 = NULL;
         return offset;
     }
+}
+
+u_int16_t ndff_set_l4hdr(
+        const struct pcap_pkthdr *header, const u_char *packet,
+        const u_int16_t offset, const struct ndpi_iphdr *iph, const struct ndpi_ipv6hdr *iph6, u_int8_t proto,
+        struct ndpi_tcphdr **tcph, struct ndpi_udphdr **udph, u_int16_t *src_port, u_int16_t *dst_port, u_int8_t **payload
+)
+{
+    u_int32_t l4_offset;
+    u_int16_t ip_offset;
+    u_int16_t l4_packet_len;
+    u_int16_t ipsize;
+
+    const u_int8_t *l3, *l4;
+    if (iph)
+    {
+        ip_offset = offset - iph->ihl * 4;
+        ipsize = header->caplen - ip_offset;
+        if (ipsize < 20)
+            return offset;
+        if ((iph->ihl * 4) > ipsize || ipsize < ntohs(iph->tot_len))
+            return offset;
+        l4_packet_len = iph->tot_len - (iph->ihl * 4);
+        l4_offset = iph->ihl * 4;
+        l3 = (const u_int8_t*) iph;
+        
+    }
+    else
+    {
+        ip_offset = offset - sizeof(struct ndpi_ipv6hdr);
+        ipsize = header->caplen - ip_offset;
+        l4_packet_len = iph6->ip6_hdr.ip6_un1_plen;
+        l4_offset = ntohs(sizeof(struct ndpi_ipv6hdr));
+        l3 = (const u_int8_t*) iph6;
+    }
+
+    l4 = &((const u_int8_t *) l3)[l4_offset];
+
+    if (proto == IPPROTO_TCP && l4_packet_len >= sizeof(struct ndpi_tcphdr))
+    {
+        u_int tcp_len;
+        *tcph = (struct ndpi_tcphdr*) l4;
+        *src_port = ntohs((*tcph)->source);
+        *dst_port = ntohs((*tcph)->dest);
+        tcp_len = ndpi_min(4 * (*tcph)->doff, l4_packet_len);
+        *payload = (u_int8_t*) &l4[tcp_len];
+    }
+
+    int a = 1;
+    
+    return 0;
 }
 
 

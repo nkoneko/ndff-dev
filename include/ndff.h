@@ -35,8 +35,17 @@
  * @par errbuf = Error Buffer
  * @return offset of the ip header
  */
-u_int16_t ndff_detect_type(const struct pcap_pkthdr *header, const int datalink_type, const u_int16_t eth_offset, const u_char *packet, u_int16_t *type, u_int16_t *vlan_id, char **errbuf);
+u_int16_t ndff_detect_type(const struct pcap_pkthdr *header, const int datalink_type, const u_int16_t eth_offset, const u_char *packet,
+        u_int16_t *type, u_int16_t *vlan_id, char **errbuf);
 
-u_int16_t ndff_set_iphdr(const struct pcap_pkthdr *header, const u_int16_t type, const u_char *packet, const u_int16_t offset, struct ndpi_iphdr **ipv4, struct ndpi_ipv6hdr **ipv6, u_int8_t *proto);
+u_int16_t ndff_set_iphdr(
+        const struct pcap_pkthdr *header, const u_int16_t type, const u_char *packet,
+        const u_int16_t offset, struct ndpi_iphdr **ipv4, struct ndpi_ipv6hdr **ipv6, u_int8_t *proto);
+
+u_int16_t ndff_set_l4hdr(
+        const struct pcap_pkthdr *header, const u_char *packet,
+        const u_int16_t offset, const struct ndpi_iphdr *iph, const struct ndpi_ipv6hdr *iph6, u_int8_t proto,
+        struct ndpi_tcphdr **tcph, struct ndpi_udphdr **udph, u_int16_t *src_port, u_int16_t *dst_port, u_int8_t **payload
+);
 
 #endif /* _NDFF_H */
