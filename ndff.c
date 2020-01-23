@@ -219,7 +219,7 @@ u_int16_t ndff_set_iphdr(const struct pcap_pkthdr *header, const u_int16_t type,
 u_int16_t ndff_set_l4hdr(
         const struct pcap_pkthdr *header, const u_char *packet,
         const u_int16_t offset, const struct ndpi_iphdr *iph, const struct ndpi_ipv6hdr *iph6, u_int8_t proto,
-        struct ndpi_tcphdr **tcph, struct ndpi_udphdr **udph, u_int16_t *src_port, u_int16_t *dst_port, u_int8_t **payload
+        struct ndpi_tcphdr **tcph, struct ndpi_udphdr **udph, u_int16_t *src_port, u_int16_t *dst_port, u_int8_t **payload, u_int16_t *payload_len
 )
 {
     u_int32_t l4_offset;
@@ -260,11 +260,38 @@ u_int16_t ndff_set_l4hdr(
         *dst_port = ntohs((*tcph)->dest);
         tcp_len = ndpi_min(4 * (*tcph)->doff, l4_packet_len);
         *payload = (u_int8_t*) &l4[tcp_len];
+        *payload_len = ndpi_max(0, l4_packet_len - 4 * (*tcph)->doff);
+        offset += tcp_len;
     }
-
-    int a = 1;
+    else if (proto == IPPROTO_UDP && l4_packet_len >= sizeof(struct ndpi_udphdr))
+    {
+        *udph = (struct ndpi_udphdr*) l4;
+        *src_port = ntohs((*udph)->source);
+        *dst_port = ntohs((*udph)->dest);
+        *payload = (u_int8_t*) &l4[sizeof(struct ndpi_udphdr)];
+        *payload_len = (l4_packet_len > sizeof(struct ndpi_udphdr)) ? l4_packet_len - sizeof(struct ndpi_udphdr) : 0;
+        offset += sizeof(struct ndpi_udphdr);
+    }
+    else if (proto == IPPROTO_ICMP)
+    {
+        *src_port = 0; *dst_port = 0;
+        *payload = (u_int8_t*) &l4[sizeof(struct ndpi_icmphdr)];
+        *payload_len = (l4_packet_len > sizeof(struct ndpi_icmphdr)) ? l4_packet_len - sizeof(struct ndpi_icmphdr) : 0;
+        offset += sizeof(struct ndpi_icmphdr);
+    }
+    else if (proto == IPPROTO_ICMPV6)
+    {
+        *src_port = 0; *dst_port = 0;
+        *payload = (u_int8_t*) &l4[sizeof(struct ndpi_icmp6hdr)];
+        *payload_len = (l4_packet_len > sizeof(struct ndpi_icmp6hdr)) ? l4_packet_len - sizeof(struct ndpi_icmp6hdr) : 0;
+        offset += sizeof(struct ndpi_icmp6hdr);
+    }
+    else
+    {
+        *src_port = *dst_port = 0;
+    }
     
-    return 0;
+    return offset;
 }
 
 

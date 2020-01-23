@@ -45,7 +45,7 @@ u_int16_t ndff_set_iphdr(
 u_int16_t ndff_set_l4hdr(
         const struct pcap_pkthdr *header, const u_char *packet,
         const u_int16_t offset, const struct ndpi_iphdr *iph, const struct ndpi_ipv6hdr *iph6, u_int8_t proto,
-        struct ndpi_tcphdr **tcph, struct ndpi_udphdr **udph, u_int16_t *src_port, u_int16_t *dst_port, u_int8_t **payload
+        struct ndpi_tcphdr **tcph, struct ndpi_udphdr **udph, u_int16_t *src_port, u_int16_t *dst_port, u_int8_t **payload, u_int16_t *payload_len
 );
 
 #endif /* _NDFF_H */
