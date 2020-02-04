@@ -25,7 +25,8 @@ executable('ndff', 'main.c', include_directories: inc, link_with: libndff, insta
 
 pcap_files = [
     'google_ssl',
-    'http_over_vlan'
+    'http_over_vlan',
+    'quic'
 ]
 foreach pcap: pcap_files
     configure_file(input: 'pcap/@0@.pcap'.format(pcap), output:'@0@.pcap'.format(pcap), copy: true)

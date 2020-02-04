@@ -102,6 +102,72 @@ TEST_F(NdffTest, CorrectlyHandleIPv4Header) {
     EXPECT_EQ(100,ipaddr.u8[3]);
 }
 
+TEST_F(NdffTest, CorrectlySetTCPHeader) {
+    const u_char *packet;
+    struct pcap_pkthdr header;
+
+    u_int16_t type;
+    u_int16_t vlan_id;
+    u_int16_t offset;
+    char *errmsg = NULL;
+
+    struct ndpi_iphdr *ipv4;
+    struct ndpi_ipv6hdr *ipv6;
+    u_int8_t proto;
+
+    struct ndpi_tcphdr *tcph;
+    struct ndpi_udphdr *udph;
+    u_int16_t payload_len;
+    u_int8_t *l4_payload;
+
+    union {
+        u_int32_t u32;
+        u_int8_t u8[4];
+    } ipaddr;
+
+    char errbuf[PCAP_ERRBUF_SIZE];
+    pcap_t *handle = pcap_open_offline("./google_ssl.pcap", errbuf);
+    packet = pcap_next(handle, &header);
+    offset = ndff_detect_type(&header, DLT_EN10MB, 0, packet, &type, &vlan_id, &errmsg);
+    offset = ndff_set_iphdr(&header, type, packet, offset, &ipv4, &ipv6, &proto);
+    offset = ndff_set_l4hdr(&header, packet, offset, ipv4, ipv6, proto, &tcph, &udph, &l4_payload, &payload_len);
+    EXPECT_EQ(42835, ntohs(tcph->source));
+    EXPECT_EQ(443, ntohs(tcph->dest));
+}
+
+TEST_F(NdffTest, CorrectlySetUDPHeader) {
+    const u_char *packet;
+    struct pcap_pkthdr header;
+
+    u_int16_t type;
+    u_int16_t vlan_id;
+    u_int16_t offset;
+    char *errmsg = NULL;
+
+    struct ndpi_iphdr *ipv4;
+    struct ndpi_ipv6hdr *ipv6;
+    u_int8_t proto;
+
+    struct ndpi_tcphdr *tcph;
+    struct ndpi_udphdr *udph;
+    u_int16_t payload_len;
+    u_int8_t *l4_payload;
+
+    union {
+        u_int32_t u32;
+        u_int8_t u8[4];
+    } ipaddr;
+
+    char errbuf[PCAP_ERRBUF_SIZE];
+    pcap_t *handle = pcap_open_offline("./quic.pcap", errbuf);
+    packet = pcap_next(handle, &header);
+    offset = ndff_detect_type(&header, DLT_EN10MB, 0, packet, &type, &vlan_id, &errmsg);
+    offset = ndff_set_iphdr(&header, type, packet, offset, &ipv4, &ipv6, &proto);
+    offset = ndff_set_l4hdr(&header, packet, offset, ipv4, ipv6, proto, &tcph, &udph, &l4_payload, &payload_len);
+    EXPECT_EQ(57833, ntohs(udph->source));
+    EXPECT_EQ(443, ntohs(udph->dest));
+}
+
 TEST_F(NdffTest, DetectType) {
     const u_char *packet;
     struct pcap_pkthdr header;
