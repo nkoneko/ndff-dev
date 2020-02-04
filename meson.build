@@ -5,8 +5,8 @@ project('ndff2', 'c', 'cpp',
 )
 
 ndpi_deps = dependency('libndpi', version: '>=2.8')
-msgpack_deps = dependency('msgpack', version: '>=3.2')
-json_deps = dependency('json-c', version: '>=0.13')
+msgpack_deps = dependency('msgpack', version: '>=3.0')
+json_deps = dependency('json-c', version: '>=0.12')
 pcap_deps = dependency('libpcap', version: '>=1.9')
 gtest_deps = dependency('gtest', main: true, version: '>=1.10')
 gmock_deps = dependency('gmock', version: '>=1.10')

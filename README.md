@@ -16,8 +16,10 @@ IPヘッダーの抽出、TCP/UDPヘッダの抽出、フローの集約など�
 開発用Dockerイメージの使い方
 -------------------------------
 
+.cあるいは.cppがsuffixのファイルを更新するとninja testが走ります。docker run -itで動かし続けてテストを走らせながら開発を進めましょう。
+
 ```
 $ docker build -t nkoneko/ndff-dev:latest -f develop/Dockerfile .
 $ # ソースコードを適当に編集したら、次のコマンドでLinux上でビルドしてテストする。
-$ docker run --rm --mount type=bind,src=$(pwd),target=/opt/ndff,readonly,consistency=cached nkoneko/ndff-dev:latest
+$ docker run -it --rm --mount type=bind,src=$(pwd),target=/opt/ndff,readonly,consistency=cached nkoneko/ndff-dev:latest
 ```

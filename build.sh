@@ -2,5 +2,7 @@
 
 meson /tmp/ndff-build
 cd /tmp/ndff-build
-ninja
-ninja test
+while find /opt/ndff -type f -name "*.c" -o -name "*.cpp" | xargs inotifywait --exclude '.*/\.git/.*' -e modify;
+do
+  ninja test
+done
