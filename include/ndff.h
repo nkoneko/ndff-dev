@@ -2,6 +2,7 @@
 #define _NDFF_H_
 
 #include <ndpi/ndpi_includes.h>
+#include <ndpi/ndpi_typedefs.h>
 #include <pcap.h>
 #include <stdbool.h>
 
@@ -28,16 +29,43 @@ typedef struct ndff_flow
 {
 	u_int32_t flow_id;
 	u_int32_t hash_value;
+        u_int8_t protocol;
 
+        u_int8_t ip_version;
 	u_int16_t vlan_id;
 	u_int32_t src_ip;
 	u_int32_t dst_ip;
 	u_int16_t src_port;
 	u_int16_t dst_port;
+
+        struct ndpi_in6_addr src_ipv6;
+        struct ndpi_in6_addr dst_ipv6;
+
+        char src_name[48], dst_name[48];
+
+        u_int64_t first_seen, last_seen;
+        u_int64_t out_bytes, in_bytes;
+        u_int64_t out_packets, in_packets;
+
+        ndpi_protocol detected_protocol;
+
+        void *src_id, *dst_id;
+        struct ndpi_flow_struct *ndpi_flow;
 } ndff_flow_t;
 
+/* TODO: write Doxygen comment */
+struct ndff_flow *ndff_get_flow_info(
+	void **trees,
+	u_int32_t num_trees,
+	u_int16_t vlan_id,
+        u_int32_t rawsize,
+        struct ndpi_id_struct **src, struct ndpi_id_struct **dst,
+	struct ndpi_iphdr *iph, struct ndpi_ipv6hdr *iph6, /* L3. iph shall be NULL if L3 protocol is IPv6. */
+	struct ndpi_tcphdr *tcph, struct ndpi_udphdr *udph /* L4. tcph shall be NULL if L4 protocol is TCP */
+);
+
 /* TODO: Add Doxygen comments */
-int ndff_flow_cmp(const void *lhs, const void *rhs);
+int ndff_flow_node_cmp(const void *lhs, const void *rhs);
 
 /**
  * @brief Detect upper layer protocol

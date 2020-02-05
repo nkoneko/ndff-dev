@@ -161,6 +161,56 @@ TEST(NdffTest, DetectType) {
     }
 }
 
+TEST(NdffTest, GetFlowTest) {
+    const u_char *packet;
+    struct pcap_pkthdr header;
+    u_int16_t type, vlan_id, offset;
+    char *errmsg = NULL;
+
+    struct ndpi_iphdr *ipv4;
+    struct ndpi_ipv6hdr *ipv6;
+    u_int8_t proto;
+    union {
+        u_int32_t u32;
+        u_int8_t u8[4];
+    } ipaddr;
+
+    struct ndpi_tcphdr *tcph;
+    struct ndpi_udphdr *udph;
+    u_int16_t payload_len;
+    u_int8_t *l4_payload;
+    void **trees;
+    trees = (void**) calloc(1, sizeof(void *));
+
+    struct ndpi_id_struct *src, *dst;
+    struct ndff_flow *flow;
+    src = dst = NULL;
+
+    PcapFile pcap("./google_ssl.pcap");
+
+    // 172.31.3.224
+    u_int32_t src_ip = (224 << 24) | (3<< 16) | (31 << 8) | 172;
+    // 216.58.212.100
+    u_int32_t dst_ip = (100 << 24) | (212<< 16) | (58 << 8) | 216;
+
+    int cnt = 0;
+    while (packet = pcap.next(header))
+    {
+        offset = ndff_detect_type(&header, DLT_EN10MB, 0, packet, &type, &vlan_id, &errmsg);
+        offset = ndff_set_iphdr(&header, type, packet, offset, &ipv4, &ipv6, &proto);
+        offset = ndff_set_l4hdr(&header, packet, offset, ipv4, ipv6, proto, &tcph, &udph, &l4_payload, &payload_len);
+        flow = ndff_get_flow_info(trees,1,vlan_id, header.caplen, &src, &dst, ipv4, ipv6, tcph, udph);
+        EXPECT_EQ(0, flow->flow_id);
+        if (cnt++ == 4) break;
+    }
+    EXPECT_EQ(2, flow->in_packets);
+    EXPECT_EQ(3, flow->out_packets);
+    EXPECT_EQ(120, flow->in_bytes);
+    EXPECT_EQ(292, flow->out_bytes);
+    EXPECT_EQ(src_ip, flow->src_ip);
+    EXPECT_EQ(dst_ip, flow->dst_ip);
+}
+
 
 }
 

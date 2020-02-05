@@ -9,19 +9,197 @@ extern "C" {
 #include "ndff.h"
 #include "ndff_util.h"
 
-struct ndff_flow *ndff_get_or_create_flow_info(
-	void **btrees,
+static u_int32_t flow_id = 0;
+
+static inline void ndff_patchIPv6Address(char *str) {
+  int i = 0, j = 0;
+
+  while(str[i] != '\0') {
+    if((str[i] == ':')
+       && (str[i+1] == '0')
+       && (str[i+2] == ':')) {
+      str[j++] = ':';
+      str[j++] = ':';
+      i += 3;
+    } else
+      str[j++] = str[i++];
+  }
+
+  if(str[j] != '\0') str[j] = '\0';
+}
+
+
+struct ndff_flow *ndff_get_flow_info(
+	void **trees,
 	u_int32_t num_trees,
 	u_int16_t vlan_id,
-	struct ndpi_iphdr *iph, struct ndpi_ipv6hdr *iph6, /* L3 */
-	struct ndpi_tcphdr *tcph, struct ndpi_udphdr *udph /* L4 */
+    u_int32_t rawsize,
+    struct ndpi_id_struct **src, struct ndpi_id_struct **dst,
+	struct ndpi_iphdr *iph, struct ndpi_ipv6hdr *iph6, /* L3. iph shall be NULL if L3 protocol is IPv6. */
+	struct ndpi_tcphdr *tcph, struct ndpi_udphdr *udph /* L4. tcph shall be NULL if L4 protocol is TCP */
 )
 {
-	/* TODO: implement btree serach/insert to aggregate packets as a flow. */
+	struct ndff_flow flow;
+    u_int32_t hash_value, i;
+    u_int16_t sport, dport;
+    int is_swapped;
+    void *node;
+
+    if (tcph)
+    {
+        flow.src_port = sport = ntohs(tcph->source);
+        flow.dst_port = dport = ntohs(tcph->dest);
+    }
+    else if (udph)
+    {
+        flow.src_port = sport = ntohs(udph->source);
+        flow.dst_port = dport = ntohs(udph->dest);
+    }
+    else
+    {
+        sport = 0; dport = 0;
+    }
+    
+    /* calculate hash */
+    flow.vlan_id = vlan_id;
+    if (iph)
+    {
+        flow.protocol = iph->protocol;
+        flow.src_ip = iph->saddr; flow.dst_ip = iph->daddr;
+        flow.hash_value = hash_value = flow.protocol + flow.vlan_id + flow.src_ip + flow.dst_ip + flow.src_port + flow.dst_port;
+    }
+    else
+    {
+        flow.protocol = iph6->ip6_hdr.ip6_un1_nxt;
+        if (flow.protocol == IPPROTO_DSTOPTS)
+        {
+            const u_int8_t *options = (const u_int8_t*) iph6 + sizeof(const struct ndpi_ipv6hdr);
+            flow.protocol = options[0];
+        }
+        flow.src_ip = iph6->ip6_src.u6_addr.u6_addr32[2] + iph6->ip6_src.u6_addr.u6_addr32[3];
+        flow.dst_ip = iph6->ip6_dst.u6_addr.u6_addr32[2] + iph6->ip6_dst.u6_addr.u6_addr32[3];
+        flow.hash_value = hash_value = flow.protocol + flow.vlan_id + flow.src_ip + flow.dst_ip + flow.src_port + flow.dst_port;
+    }
+    i = hash_value % num_trees;
+    node = ndpi_tfind(&flow, &trees[i], ndff_flow_node_cmp);
+
+    is_swapped = 0;
+    if (node == NULL)
+    {
+        /* Swap src with dst, and then try to find a flow node in a binary search tree */
+        u_int32_t _sip = flow.src_ip;
+        u_int32_t _dip = flow.dst_ip;
+        u_int16_t _sp = flow.src_port;
+        u_int16_t _dp = flow.dst_port;
+
+        flow.src_ip = _dip;
+        flow.dst_ip = _sip;
+        flow.src_port = _dp;
+        flow.dst_port = _sp;
+        is_swapped = 1;
+
+        node = ndpi_tfind(&flow, &trees[i], ndff_flow_node_cmp);
+    }    
+
+    /*
+     * If the incomign flow node isn't in a binary search tree, memory will be allocated to store the flow node therein
+     * Otherwise, the exisiting flow node is used and updated.
+     */
+    if (node == NULL)
+    {
+        struct ndff_flow *new_flow = (struct ndff_flow*) malloc(sizeof(struct ndff_flow));
+        if (new_flow == NULL)
+        {
+            // TODO: error handling. Low mem.
+        }
+        else
+        {
+            memset(new_flow, 0, sizeof(struct ndff_flow));
+            new_flow->flow_id = flow_id++;
+            new_flow->hash_value = hash_value;
+            new_flow->protocol = flow.protocol;
+            // in this branch, is_swapped must be 1.
+            new_flow->src_ip = flow.dst_ip;
+            new_flow->src_port = flow.dst_port;
+            new_flow->dst_ip = flow.src_ip;
+            new_flow->dst_port = flow.src_port;
+            if (iph)
+            {
+                new_flow->ip_version = IPVERSION;
+                inet_ntop(AF_INET, &new_flow->src_ip, new_flow->src_name, sizeof(new_flow->src_name));
+                inet_ntop(AF_INET, &new_flow->dst_ip, new_flow->dst_name, sizeof(new_flow->dst_name));
+            }
+            else
+            {
+                new_flow->ip_version = 6;
+                memcpy(new_flow->src_ipv6.u6_addr.u6_addr32, iph6->ip6_src.u6_addr.u6_addr32, sizeof(iph6->ip6_src.u6_addr.u6_addr32));
+                memcpy(new_flow->dst_ipv6.u6_addr.u6_addr32, iph6->ip6_dst.u6_addr.u6_addr32, sizeof(iph6->ip6_dst.u6_addr.u6_addr32));
+                inet_ntop(AF_INET6, &new_flow->src_ipv6, new_flow->src_name, sizeof(new_flow->src_name));
+                inet_ntop(AF_INET6, &new_flow->dst_ipv6, new_flow->dst_name, sizeof(new_flow->dst_name));
+                ndff_patchIPv6Address(new_flow->src_name); ndff_patchIPv6Address(new_flow->dst_name);
+            }
+            if ((new_flow->ndpi_flow = malloc(sizeof(struct ndpi_flow_struct))) == NULL)
+            {
+                free(new_flow);
+                return NULL;
+            }
+            else
+            {
+                memset(new_flow->ndpi_flow, 0, sizeof(struct ndpi_flow_struct));
+            }
+            if ((new_flow->src_id = malloc(sizeof(struct ndpi_id_struct))) == NULL)
+            {
+                free(new_flow);
+                return NULL;
+            }
+            else
+            {
+                memset(new_flow->src_id, 0, sizeof(struct ndpi_id_struct));
+            }
+            if ((new_flow->dst_id = malloc(sizeof(struct ndpi_id_struct))) == NULL)
+            {
+                free(new_flow);
+                return NULL;
+            }
+            else
+            {
+                memset(new_flow->dst_id, 0, sizeof(struct ndpi_id_struct));
+            }
+            new_flow->out_packets = 1; new_flow->out_bytes = rawsize;
+            new_flow->in_packets = 0; new_flow->in_packets = 0;
+            // Insert into the binary tree.
+            ndpi_tsearch(new_flow, &trees[i], ndff_flow_node_cmp);
+            *src = new_flow->src_id; *dst = new_flow->dst_id;
+            return new_flow;
+        }
+    }
+    else
+    {
+        struct ndff_flow *_flow = *(struct ndff_flow**) node;
+        u_int8_t is_reversed = 0;
+        if (_flow->src_ip == flow.dst_ip)
+        {
+            is_reversed = 1;
+        }
+        if (is_swapped || is_reversed)
+        {
+            *src = _flow->dst_id; *dst = _flow->src_id;
+            _flow->in_packets++;
+            _flow->in_bytes += rawsize;
+        }
+        else
+        {
+            *src = _flow->src_id; *dst = _flow->dst_id;
+            _flow->out_packets++;
+            _flow->out_bytes += rawsize;
+        }
+        return _flow;
+    }
+    
 	return NULL;
 }
 
-int ndff_flow_cmp(const void *lhs, const void *rhs)
+int ndff_flow_node_cmp(const void *lhs, const void *rhs)
 {
 	const struct ndff_flow *x = (const struct ndff_flow*) lhs;
 	const struct ndff_flow *y = (const struct ndff_flow*) rhs;
