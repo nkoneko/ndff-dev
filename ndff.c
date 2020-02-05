@@ -9,6 +9,62 @@ extern "C" {
 #include "ndff.h"
 #include "ndff_util.h"
 
+struct ndff_flow *ndff_get_or_create_flow_info(
+	void **btrees,
+	u_int32_t num_trees,
+	u_int16_t vlan_id,
+	struct ndpi_iphdr *iph, struct ndpi_ipv6hdr *iph6, /* L3 */
+	struct ndpi_tcphdr *tcph, struct ndpi_udphdr *udph /* L4 */
+)
+{
+	/* TODO: implement btree serach/insert to aggregate packets as a flow. */
+	return NULL;
+}
+
+int ndff_flow_cmp(const void *lhs, const void *rhs)
+{
+	const struct ndff_flow *x = (const struct ndff_flow*) lhs;
+	const struct ndff_flow *y = (const struct ndff_flow*) rhs;
+	if (x->hash_value < y->hash_value)
+	{
+		return -1;
+	}
+	else if (x->hash_value > y->hash_value)
+	{
+		return 1;
+	}
+	else
+	{
+		/* Hashes match... */
+		if (
+			(x->src_ip == y->src_ip && x->src_port == y->src_port && x->dst_ip == y->dst_ip && x->dst_port == y->dst_port)
+		 || (x->src_ip == y->dst_ip && x->src_port == y->dst_port && x->dst_ip == y->src_ip && x->dst_port == y->src_port)
+		)
+		{
+			/* And IP:Port pairs match */
+			return 0;
+		}
+		/* And source IP addrs differ */
+		if (x->src_ip < y->src_ip) return -1; if (x->src_ip > y->src_ip) return 1;
+
+		/* IP source IP addrs match, but source ports differ */
+		if (x->src_port < y->src_port) return -1; if (x->src_port > y->src_port) return 1;
+
+		/* Hahses, source IP addrs, and source ports match, but destination IP addrs differ */
+		if (x->dst_ip < y->dst_ip) return -1; if (x->dst_ip > y->dst_ip) return 1;
+
+		/* Hahses, source IP addrs, source ports, and destination IP addrs match, but dst ports differ */
+		if (x->dst_port < y->dst_port) return -1; if (x->dst_port > y->dst_port) return 1;
+
+		return 0;
+		/*
+		 * Actually, I don't give a damn about what ordering is defined in flows, as long as
+		 * binary search tree works correctly and incoming flows are inserted in the tree practically randomly.
+		 * (*Practical* randomness is required to balance the tree, or search would otherwise underperform)
+		 */
+	}
+}
+
 static inline u_int16_t ndff_detect_type_en(const u_int16_t eth_offset, const u_char *packet, u_int16_t *type)
 {
     struct ndpi_ethhdr *l2header = (struct ndpi_ethhdr*) &packet[eth_offset];

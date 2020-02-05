@@ -23,6 +23,22 @@
 #define IPPROTO_IPv6 41
 #define IPPROTO_DSTOPTS 60
 
+/* TODO: Add Doxygen comments */
+typedef struct ndff_flow
+{
+	u_int32_t flow_id;
+	u_int32_t hash_value;
+
+	u_int16_t vlan_id;
+	u_int32_t src_ip;
+	u_int32_t dst_ip;
+	u_int16_t src_port;
+	u_int16_t dst_port;
+} ndff_flow_t;
+
+/* TODO: Add Doxygen comments */
+int ndff_flow_cmp(const void *lhs, const void *rhs);
+
 /**
  * @brief Detect upper layer protocol
  * @fn ndff_detect_type
