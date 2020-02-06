@@ -6,6 +6,7 @@ extern "C" {
 #include <ndpi/ndpi_api.h>
 #include <syslog.h>
 #include <ndpi/ndpi_typedefs.h>
+#include <ndpi/ndpi_protocol_ids.h>
 #include "ndff.h"
 #include "ndff_util.h"
 
@@ -28,6 +29,37 @@ static inline void ndff_patchIPv6Address(char *str) {
   if(str[j] != '\0') str[j] = '\0';
 }
 
+static inline u_int8_t ndff_is_secured_protocol(struct ndff_flow *flow)
+{
+    if ((flow->detected_protocol.master_protocol == NDPI_PROTOCOL_TLS)
+        || (flow->detected_protocol.app_protocol == NDPI_PROTOCOL_TLS)
+        || (flow->detected_protocol.master_protocol == NDPI_PROTOCOL_SSH)
+        || (flow->detected_protocol.app_protocol == NDPI_PROTOCOL_SSH)
+   )
+   {
+       return 1;
+   }
+   else
+   {
+       return 0;
+   }
+   
+}
+
+struct ndpi_proto *ndff_get_protocol(struct ndpi_detection_module_struct *detect_mod, u_int8_t proto_num, u_int64_t time, struct ndff_flow *flow)
+{
+    if (flow->first_seen == 0)
+    {
+        flow->first_seen = time;
+    }
+    flow->last_seen = time;
+    if ((proto_num == IPPROTO_TCP)
+        && ndff_is_secured_protocol(flow))
+    {
+        
+    }
+    return NULL;
+}
 
 struct ndff_flow *ndff_get_flow_info(
 	void **trees,
