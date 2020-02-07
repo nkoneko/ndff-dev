@@ -24,33 +24,67 @@
 #define IPPROTO_IPv6 41
 #define IPPROTO_DSTOPTS 60
 
+typedef void (*ndff_callback)(struct ndff_flow *flow, void*);
+
 /* TODO: Add Doxygen comments */
 typedef struct ndff_flow
 {
-	u_int32_t flow_id;
-	u_int32_t hash_value;
-        u_int8_t protocol;
+    u_int32_t flow_id;
+    u_int32_t hash_value;
+    u_int8_t protocol;
 
-        u_int8_t ip_version;
-	u_int16_t vlan_id;
-	u_int32_t src_ip;
-	u_int32_t dst_ip;
-	u_int16_t src_port;
-	u_int16_t dst_port;
+    u_int8_t ip_version;
+    u_int16_t vlan_id;
+    u_int32_t src_ip;
+    u_int32_t dst_ip;
+    u_int16_t src_port;
+    u_int16_t dst_port;
 
-        struct ndpi_in6_addr src_ipv6;
-        struct ndpi_in6_addr dst_ipv6;
+    struct ndpi_in6_addr src_ipv6;
+    struct ndpi_in6_addr dst_ipv6;
 
-        char src_name[48], dst_name[48];
+    char src_name[48], dst_name[48];
 
-        u_int64_t first_seen, last_seen;
-        u_int64_t out_bytes, in_bytes;
-        u_int64_t out_packets, in_packets;
+    u_int64_t first_seen, last_seen;
+    u_int64_t out_bytes, in_bytes;
+    u_int64_t out_packets, in_packets;
 
-        ndpi_protocol detected_protocol;
+    ndpi_protocol detected_protocol;
 
-        void *src_id, *dst_id;
-        struct ndpi_flow_struct *ndpi_flow;
+    void *src_id, *dst_id;
+    struct ndpi_flow_struct *ndpi_flow;
+    u_int8_t is_detection_completed;
+
+    char host_server_name[240];
+    char bittorrent_hash[4];
+
+    union 
+    {
+        struct
+        {
+                char client_requested_server_name[64], *server_names;
+        } ssh_tls;
+        struct
+        {
+                char url[256], user_agent[128];
+        } http;
+        struct
+        {
+                u_int16_t query_type, query_class, rsp_type;
+                ndpi_ip_addr_t rsp_addr;
+        } dns;
+        struct
+        {
+                u_char hash[20];
+        } bittorrent;
+        struct
+        {
+            u_int8_t macaddr[6];
+            u_int64_t lease_limit;
+            u_int32_t your_ip_addr;
+        } dhcp;        
+    } protos;
+
 } ndff_flow_t;
 
 /* TODO: write Doxygen comment */

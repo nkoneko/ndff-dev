@@ -11,6 +11,7 @@ extern "C" {
 #include "ndff_util.h"
 
 static u_int32_t flow_id = 0;
+static u_int8_t max_tcp_dissected_packets = 80, max_udp_dissected_packets = 16;
 
 static inline void ndff_patchIPv6Address(char *str) {
   int i = 0, j = 0;
@@ -43,20 +44,48 @@ static inline u_int8_t ndff_is_secured_protocol(struct ndff_flow *flow)
    {
        return 0;
    }
-   
 }
 
-struct ndpi_proto *ndff_get_protocol(struct ndpi_detection_module_struct *detect_mod, u_int8_t proto_num, u_int64_t time, struct ndff_flow *flow)
+static inline void ndff_collect_info(struct ndff_flow *flow, ndff_callback on_detect, ndff_callback on_giveup)
+{
+    if (!flow->ndpi_flow)
+        return;
+    
+    snprintf(flow->host_server_name, sizeof(flow->host_server_name), "%s", flow->ndpi_flow->host_server_name);
+}
+
+struct ndpi_proto *ndff_get_protocol(
+    struct ndpi_detection_module_struct *detect_mod, u_int8_t proto_num, u_int64_t time,
+    struct ndpi_iph *iph, struct ndpi_iphv6 *iph6, u_int16_t ipsize,
+    struct ndpi_id_struct *src, struct ndpi_id_struct *dst,
+    ndff_callback on_detect, ndff_callback on_giveup,
+    struct ndff_flow *flow)
 {
     if (flow->first_seen == 0)
     {
         flow->first_seen = time;
     }
     flow->last_seen = time;
-    if ((proto_num == IPPROTO_TCP)
-        && ndff_is_secured_protocol(flow))
+    if (!flow->is_detection_completed)
     {
-        
+        u_int enough = (
+            (proto_num == IPPROTO_UDP && (flow->out_packets + flow->in_packets) > max_udp_dissected_packets)
+            || (proto_num == IPPROTO_TCP && (flow->out_packets + flow->in_packets) > max_tcp_dissected_packets)
+        ) ? 1 : 0;
+        flow->detected_protocol = ndpi_detection_process_packet(detect_mod, flow->ndpi_flow, iph != NULL ? (u_int8_t*) iph : (u_int8_t*) iph6, ipsize, time, src, dst);
+        if (enough || flow->detected_protocol.app_protocol != NDPI_PROTOCOL_UNKNOWN)
+        {
+            if (enough || !ndpi_extra_dissection_possible(detect_mod, flow->ndpi_flow))
+            {
+                flow->is_detection_completed = 1;
+                if (flow->detected_protocol.app_protocol == NDPI_PROTOCOL_UNKNOWN)
+                {
+                    u_int8_t proto_guessed;
+                    flow->detected_protocol = ndpi_detection_giveup(detect_mod, flow->ndpi_flow, 1, &proto_guessed);
+                }
+                ndff_collect_info(flow, on_detect, on_giveup);
+            }
+        }
     }
     return NULL;
 }
@@ -155,6 +184,7 @@ struct ndff_flow *ndff_get_flow_info(
             new_flow->src_port = flow.dst_port;
             new_flow->dst_ip = flow.src_ip;
             new_flow->dst_port = flow.src_port;
+            new_flow->is_detection_completed = 0;
             if (iph)
             {
                 new_flow->ip_version = IPVERSION;
