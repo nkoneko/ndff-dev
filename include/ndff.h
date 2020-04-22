@@ -20,11 +20,7 @@
 #define FCF_FROM_DS(fc) ((fc) & 0x0200)
 #define WIFI_DATA 0x2
 
-#define IPPROTO_TCP 6
 #define IPPROTO_IPv6 41
-#define IPPROTO_DSTOPTS 60
-
-typedef void (*ndff_callback)(struct ndff_flow *flow, void*);
 
 /* TODO: Add Doxygen comments */
 typedef struct ndff_flow
@@ -39,6 +35,7 @@ typedef struct ndff_flow
     u_int32_t dst_ip;
     u_int16_t src_port;
     u_int16_t dst_port;
+	u_int32_t transaction_id;
 
     struct ndpi_in6_addr src_ipv6;
     struct ndpi_in6_addr dst_ipv6;
@@ -57,35 +54,38 @@ typedef struct ndff_flow
 
     char host_server_name[240];
     char bittorrent_hash[4];
+	char info[160];
 
-    union 
-    {
-        struct
-        {
-                char client_requested_server_name[64], *server_names;
-        } ssh_tls;
-        struct
-        {
-                char url[256], user_agent[128];
-        } http;
-        struct
-        {
-                u_int16_t query_type, query_class, rsp_type;
-                ndpi_ip_addr_t rsp_addr;
-        } dns;
-        struct
-        {
-                u_char hash[20];
-        } bittorrent;
-        struct
-        {
-            u_int8_t macaddr[6];
-            u_int64_t lease_limit;
-            u_int32_t your_ip_addr;
-        } dhcp;        
-    } protos;
+	struct
+	{
+			char client_requested_server_name[64], *server_names;
+	} ssh_tls;
+	struct
+	{
+			char url[256], user_agent[128];
+	} http;
+	struct
+	{
+			u_int16_t query_type, rsp_type;
+			ndpi_ip_addr_t rsp_addr;
+	} dns;
+	struct
+	{
+		u_int8_t macaddr[6];
+		u_int64_t lease_time;
+		u_int32_t yiaddr;
+	} dhcp;
 
 } ndff_flow_t;
+
+typedef void (*ndff_callback)(struct ndff_flow *flow, void*);
+
+struct ndpi_proto ndff_get_protocol(
+    struct ndpi_detection_module_struct *detect_mod, u_int8_t proto_num, u_int64_t time,
+    struct ndpi_iphdr *iph, struct ndpi_ipv6hdr *iph6, u_int16_t ipsize,
+    struct ndpi_id_struct *src, struct ndpi_id_struct *dst,
+    ndff_callback on_detect, ndff_callback on_giveup,
+    struct ndff_flow *flow);
 
 /* TODO: write Doxygen comment */
 struct ndff_flow *ndff_get_flow_info(

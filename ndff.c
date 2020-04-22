@@ -46,17 +46,96 @@ static inline u_int8_t ndff_is_secured_protocol(struct ndff_flow *flow)
    }
 }
 
-static inline void ndff_collect_info(struct ndff_flow *flow, ndff_callback on_detect, ndff_callback on_giveup)
+static inline u_int8_t is_proto(struct ndff_flow *flow, u_int16_t id)
+{
+	return (flow->detected_protocol.master_protocol == id) || (flow->detected_protocol.app_protocol == id);
+}
+
+static inline void ndff_collected_info(struct ndff_flow *flow, ndff_callback on_detect, ndff_callback on_giveup)
 {
     if (!flow->ndpi_flow)
         return;
     
     snprintf(flow->host_server_name, sizeof(flow->host_server_name), "%s", flow->ndpi_flow->host_server_name);
+	if (is_proto(flow, NDPI_PROTOCOL_BITTORRENT))
+	{
+		u_int i, j, n = 0;
+		for (i = 0, j = 0; j < sizeof(flow->bittorrent_hash) - 1; ++i)
+		{
+			sprintf(&flow->bittorrent_hash[j], "%02x", flow->ndpi_flow->protos.bittorrent.hash[i]);
+			j += 2;
+			n += flow->ndpi_flow->protos.bittorrent.hash[i];
+		}
+		if (n == 0) flow->bittorrent_hash[0] = '\0';
+	}
+	else if (is_proto(flow, NDPI_PROTOCOL_HTTP))
+	{
+		if (flow->ndpi_flow->http.url != NULL)
+		{
+			snprintf(flow->http.url, sizeof(flow->http.url), "%s", flow->ndpi_flow->http.url);
+			snprintf(flow->http.user_agent, sizeof(flow->http.user_agent), "%s", flow->ndpi_flow->http.user_agent ? flow->ndpi_flow->http.user_agent : "");
+		}
+	}
+	else if (is_proto(flow, NDPI_PROTOCOL_SSH))
+	{
+		snprintf(flow->ssh_tls.client_requested_server_name, sizeof(flow->ssh_tls.client_requested_server_name), "%s", flow->ndpi_flow->protos.ssh.client_signature);
+	}
+	else if (is_proto(flow, NDPI_PROTOCOL_TLS))
+	{
+		snprintf(flow->ssh_tls.client_requested_server_name, sizeof(flow->ssh_tls.client_requested_server_name), "%s", flow->ndpi_flow->protos.stun_ssl.ssl.client_requested_server_name);
+	}
+	else if (is_proto(flow, NDPI_PROTOCOL_DHCP))
+	{
+		flow->dhcp.yiaddr = flow->ndpi_flow->protos.dhcp.yiaddr;
+		flow->dhcp.lease_time = flow->ndpi_flow->protos.dhcp.lease_time;
+		memcpy(flow->dhcp.macaddr, flow->ndpi_flow->protos.dhcp.macaddr, 6);
+	}
+	else if (is_proto(flow, NDPI_PROTOCOL_DNS))
+	{
+		flow->dns.query_type = flow->ndpi_flow->protos.dns.query_type;
+		flow->dns.rsp_type = flow->ndpi_flow->protos.dns.rsp_type;
+		if (flow->ndpi_flow->protos.dns.rsp_type == 28)
+		{
+			memcpy(&flow->dns.rsp_addr.ipv6, &flow->ndpi_flow->protos.dns.rsp_addr.ipv6, sizeof(struct ndpi_in6_addr));
+		}
+		else
+		{
+			memcpy(&flow->dns.rsp_addr.ipv4, &flow->ndpi_flow->protos.dns.rsp_addr.ipv4, sizeof(u_int32_t));
+		}
+	}
+
+	if (flow->is_detection_completed)
+	{
+		if (on_giveup != NULL)
+		{
+			on_giveup(flow, NULL);
+		}
+		if (on_detect != NULL)
+		{
+			on_detect(flow, NULL);
+		}
+	}
+	if (flow->ndpi_flow)
+	{
+		ndpi_flow_free(flow->ndpi_flow);
+		flow->ndpi_flow = NULL;
+	}
+	if (flow->src_id)
+	{
+		ndpi_free(flow->src_id);
+		flow->src_id = NULL;
+	}
+	if (flow->dst_id)
+	{
+		ndpi_free(flow->dst_id);
+		flow->dst_id = NULL;
+	}
 }
 
-struct ndpi_proto *ndff_get_protocol(
+// ensure that flow is not NULL.
+struct ndpi_proto ndff_get_protocol(
     struct ndpi_detection_module_struct *detect_mod, u_int8_t proto_num, u_int64_t time,
-    struct ndpi_iph *iph, struct ndpi_iphv6 *iph6, u_int16_t ipsize,
+    struct ndpi_iphdr *iph, struct ndpi_ipv6hdr *iph6, u_int16_t ipsize,
     struct ndpi_id_struct *src, struct ndpi_id_struct *dst,
     ndff_callback on_detect, ndff_callback on_giveup,
     struct ndff_flow *flow)
@@ -83,11 +162,11 @@ struct ndpi_proto *ndff_get_protocol(
                     u_int8_t proto_guessed;
                     flow->detected_protocol = ndpi_detection_giveup(detect_mod, flow->ndpi_flow, 1, &proto_guessed);
                 }
-                ndff_collect_info(flow, on_detect, on_giveup);
+                ndff_collected_info(flow, on_detect, on_giveup);
             }
         }
     }
-    return NULL;
+    return flow->detected_protocol;
 }
 
 struct ndff_flow *ndff_get_flow_info(
@@ -101,10 +180,12 @@ struct ndff_flow *ndff_get_flow_info(
 )
 {
 	struct ndff_flow flow;
-    u_int32_t hash_value, i;
+    u_int32_t hash_value, i, transaction_id;
+	u_int8_t *l4;
     u_int16_t sport, dport;
     int is_swapped;
     void *node;
+	transaction_id = 0;
 
     if (tcph)
     {
@@ -115,11 +196,20 @@ struct ndff_flow *ndff_get_flow_info(
     {
         flow.src_port = sport = ntohs(udph->source);
         flow.dst_port = dport = ntohs(udph->dest);
-    }
+		if (flow.dst_port == 67 || flow.dst_port == 68 || flow.src_port == 67 || flow.src_port == 68)
+		{
+			l4 = (u_int8_t*) udph;
+			if ((l4[8] == 0x02 || l4[8] == 0x01) && l4[9] == 0x01 && l4[10] == 0x06 && l4[11] == 0x00)
+			{
+				transaction_id = ((u_int32_t) l4[12] << 24) | (l4[13] << 16) | (l4[14] << 8) | l4[15];
+			}
+		}
+	}
     else
     {
         sport = 0; dport = 0;
     }
+	flow.transaction_id = transaction_id;
     
     /* calculate hash */
     flow.vlan_id = vlan_id;
@@ -127,7 +217,7 @@ struct ndff_flow *ndff_get_flow_info(
     {
         flow.protocol = iph->protocol;
         flow.src_ip = iph->saddr; flow.dst_ip = iph->daddr;
-        flow.hash_value = hash_value = flow.protocol + flow.vlan_id + flow.src_ip + flow.dst_ip + flow.src_port + flow.dst_port;
+        flow.hash_value = hash_value = flow.protocol + flow.vlan_id + flow.src_ip + flow.dst_ip + flow.src_port + flow.dst_port + transaction_id;
     }
     else
     {
@@ -139,7 +229,7 @@ struct ndff_flow *ndff_get_flow_info(
         }
         flow.src_ip = iph6->ip6_src.u6_addr.u6_addr32[2] + iph6->ip6_src.u6_addr.u6_addr32[3];
         flow.dst_ip = iph6->ip6_dst.u6_addr.u6_addr32[2] + iph6->ip6_dst.u6_addr.u6_addr32[3];
-        flow.hash_value = hash_value = flow.protocol + flow.vlan_id + flow.src_ip + flow.dst_ip + flow.src_port + flow.dst_port;
+        flow.hash_value = hash_value = flow.protocol + flow.vlan_id + flow.src_ip + flow.dst_ip + flow.src_port + flow.dst_port + transaction_id;
     }
     i = hash_value % num_trees;
     node = ndpi_tfind(&flow, &trees[i], ndff_flow_node_cmp);
@@ -229,6 +319,7 @@ struct ndff_flow *ndff_get_flow_info(
             }
             new_flow->out_packets = 1; new_flow->out_bytes = rawsize;
             new_flow->in_packets = 0; new_flow->in_packets = 0;
+			new_flow->transaction_id = flow.transaction_id;
             // Insert into the binary tree.
             ndpi_tsearch(new_flow, &trees[i], ndff_flow_node_cmp);
             *src = new_flow->src_id; *dst = new_flow->dst_id;
@@ -277,24 +368,88 @@ int ndff_flow_node_cmp(const void *lhs, const void *rhs)
 	{
 		/* Hashes match... */
 		if (
-			(x->src_ip == y->src_ip && x->src_port == y->src_port && x->dst_ip == y->dst_ip && x->dst_port == y->dst_port)
-		 || (x->src_ip == y->dst_ip && x->src_port == y->dst_port && x->dst_ip == y->src_ip && x->dst_port == y->src_port)
+			(x->src_ip == y->src_ip && x->src_port == y->src_port && x->dst_ip == y->dst_ip && x->dst_port == y->dst_port && x->transaction_id == y->transaction_id)
+		 || (x->src_ip == y->dst_ip && x->src_port == y->dst_port && x->dst_ip == y->src_ip && x->dst_port == y->src_port && x->transaction_id == y->transaction_id)
 		)
 		{
 			/* And IP:Port pairs match */
 			return 0;
 		}
+		if (x->src_ip == y->dst_ip && x->dst_ip && y->src_ip)
+		{
+			if (x->src_port < y->dst_port)
+			{
+				return -1;
+			}
+			if (x->src_port > y->dst_port)
+			{
+				return 1;
+			}
+			if (x->dst_port < y->src_port)
+			{
+				return -1;
+			}
+			if (x->dst_port > y->src_port)
+			{
+				return 1;
+			}
+			if (x->transaction_id < y->transaction_id)
+			{
+				return -1;
+			}
+			if (x->transaction_id > y->transaction_id)
+			{
+				return 1;
+			}
+		}
 		/* And source IP addrs differ */
-		if (x->src_ip < y->src_ip) return -1; if (x->src_ip > y->src_ip) return 1;
+		if (x->src_ip < y->src_ip)
+		{
+			return -1;
+		}
+		if (x->src_ip > y->src_ip)
+		{
+			return 1;
+		}
 
 		/* IP source IP addrs match, but source ports differ */
-		if (x->src_port < y->src_port) return -1; if (x->src_port > y->src_port) return 1;
+		if (x->src_port < y->src_port)
+		{
+			return -1;
+		}
+		if (x->src_port > y->src_port)
+		{
+			return 1;
+		}
 
 		/* Hahses, source IP addrs, and source ports match, but destination IP addrs differ */
-		if (x->dst_ip < y->dst_ip) return -1; if (x->dst_ip > y->dst_ip) return 1;
+		if (x->dst_ip < y->dst_ip)
+		{
+			return -1;
+		}
+		if (x->dst_ip > y->dst_ip)
+		{
+			return 1;
+		}
 
 		/* Hahses, source IP addrs, source ports, and destination IP addrs match, but dst ports differ */
-		if (x->dst_port < y->dst_port) return -1; if (x->dst_port > y->dst_port) return 1;
+		if (x->dst_port < y->dst_port)
+		{
+			return -1;
+		}
+		if (x->dst_port > y->dst_port)
+		{
+			return 1;
+		}
+
+		if (x->transaction_id < y->transaction_id)
+		{
+			return -1;
+		}
+		if (x->transaction_id > y->transaction_id)
+		{
+			return 1;
+		}
 
 		return 0;
 		/*
