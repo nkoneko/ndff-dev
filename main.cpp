@@ -531,9 +531,11 @@ static void ndff_process_packet(u_char *args, const struct pcap_pkthdr *header, 
 			ndpi_thread_info[thread_id].last_idle_scan_time = ndpi_thread_info[thread_id].workflow->last_time;
 		}
 	}
+	free(packet_checked);
 	return;
 ignore:
 	printf("Non-IP protocol.\n");
+	free(packet_checked);
 }
 
 static void runPcapLoop(u_int16_t thread_id)
